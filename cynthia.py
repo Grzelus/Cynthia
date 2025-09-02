@@ -22,7 +22,10 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 RIOT_API_KEY = os.getenv("RIOT_API_KEY")
 
 intents = discord.Intents.default()
-intents.message_content=True
+intents.message_content = True         # Needed to read message content
+intents.members = True                 # Needed to access member info (like mentions and roles)
+intents.guilds = True                  # Needed for basic server data
+intents.reactions = True
 bot = commands.Bot(command_prefix="$", intents=intents)
 
 @bot.event
@@ -67,8 +70,11 @@ async def marriage(ctx:commands.Context, member: discord.Member):
 
     message = await ctx.send(embed=embed)
 
+    await message.add_reaction("✅")
+    await message.add_reaction("❌")
+
     def check(reaction:discord.Reaction, user:discord.Member):
-        return (user == member.name and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == message.id)
+        return (user.id == member.id and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == message.id)
     
     try:
         reactionUser: tuple[discord.Reaction, discord.User]= await bot.wait_for("reaction_add",timeout=60.0, check=check)

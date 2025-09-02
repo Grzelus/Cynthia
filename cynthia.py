@@ -64,6 +64,13 @@ async def kill(ctx:commands.Context, member: discord.Member):
     await ctx.send(embed=embed)
 
 @bot.command()
+async def slap(ctx:commands.Context, member: discord.Member):
+    urls =["https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExY2M4Nng5bzQ5NTRxZjJ5dmZreTd1ZTZpbmxncG12cHl1anVzc2kxZyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/Gf3AUz3eBNbTW/giphy.gif"]
+    embed = createInteraction(ctx, member, "Slapped!", f"{member.mention} got slapped",discord.Color.dark_gold(),urls,f"Slapped by {ctx.author.display_name}")
+
+    await ctx.send(embed=embed)
+
+@bot.command()
 async def marriage(ctx:commands.Context, member: discord.Member):
     urls = ["https://i.pinimg.com/originals/01/91/f9/0191f989bab551e76a452b5c2fdf8c34.gif"]
     embed = createInteraction(ctx, member,"Ohh, it's getting serious!", f"{member.mention} do you accept it?",discord.Color.blurple(),urls,f"{ctx.author.display_name} proposes you something special")

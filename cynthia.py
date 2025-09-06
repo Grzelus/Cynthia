@@ -10,26 +10,75 @@ from bs4 import BeautifulSoup
 from yt_dlp import YoutubeDL
 import json
 
+load_dotenv()
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+RIOT_API_KEY = os.getenv("RIOT_API_KEY")
+
+intents = discord.Intents.default()
+intents.message_content = True        
+intents.members = True                 
+intents.guilds = True                  
+intents.reactions = True
+bot = commands.Bot(command_prefix="$", intents=intents)
+
 #CONFIG FILE AND ITS FUNCTION
 #####################################################
 CONFIG_FILE = "config.json"
 
-def save_config(playlist_url, channel_id):
-    data = {
-        "playlist_url": playlist_url,
-        "discord_text_channel": channel_id
-    }
-    with open(CONFIG_FILE, "w") as file:
-        json.dump(data, file)
+def save_config(guild:discord.Guild, playlist_url=None, channel_id= None, post_time = None):
+    guild_id = guild.id
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, "r") as f:
+            servers_config = json.load(f)
+    else:
+        servers_config = {}
 
-def load_config():
+
+    guild_id = str(guild_id)
+    if guild_id not in servers_config:
+        servers_config[guild_id]= {}
+        
+
+    if playlist_url is not None:
+        servers_config[guild_id]["playlist_url"] = playlist_url
+    if channel_id is not None:
+        servers_config[guild_id]["channel_id"] = channel_id
+    if post_time is not None:
+        servers_config[guild_id]["post_time"] = post_time
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(servers_config,f,indent=4)
+
+
+    
+def load_config(guild):
+    guild_id = str(guild.id)
+
     if not os.path.exists(CONFIG_FILE):
-        return None, None
+        return {"playlist_url": None, "channel_id": None}
+
     with open(CONFIG_FILE, "r") as f:
         data = json.load(f)
-        return data.get("playlist_url"), data.get("discord_text_channel")
-    
-playlist_url, discord_text_channel = load_config()
+
+    return data.get(guild_id, {"playlist_url": None, "channel_id": None})
+
+@bot.event
+async def on_guild_join(guild: discord.Guild):
+    guild_id = guild.id
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            server_config = json.load(f)
+    except FileNotFoundError:
+            server_config = {}
+
+    if guild_id not in server_config:
+        server_config[guild_id] = {
+            "playlist_url": None,
+            "channel_id": None,
+            "post_time": 12
+        }
+
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(server_config, f, indent=4)
 #####################################################
 
 
@@ -42,18 +91,6 @@ def createInteraction(ctx:commands.Context,member:discord.Member,title: str, des
 
     return embed
 
-
-
-load_dotenv()
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-RIOT_API_KEY = os.getenv("RIOT_API_KEY")
-
-intents = discord.Intents.default()
-intents.message_content = True        
-intents.members = True                 
-intents.guilds = True                  
-intents.reactions = True
-bot = commands.Bot(command_prefix="$", intents=intents)
 
 @bot.event
 async def on_ready():
@@ -201,76 +238,98 @@ async def unban(ctx: commands.Context, user: str):
 
 @bot.command()
 async def set_daily_playlist(ctx: commands.Context, link: str):
-    global playlist_url
-
-    if link is None:
+    if not link:
         await ctx.send("Please select your playlist!")
         return
-    
-    playlist_url = link
-    save_config(playlist_url, discord_text_channel)
-    await ctx.send(f"Playlist link is set to {playlist_url}")
+
+    config = load_config(ctx.guild)
+    config["playlist_url"] = link
+
+    save_config(ctx.guild, config["playlist_url"], config["channel_id"])
+    await ctx.send(f"Playlist link is set to: {link}")
+
 
 @bot.command()
-async def set_daily_playlist_channel(ctx: commands.Context, channel_name):
-    global discord_text_channel
-
+async def set_daily_playlist_channel(ctx: commands.Context, channel_name: str):
     for channel in ctx.guild.channels:
         if channel.name == channel_name:
-            discord_text_channel = channel.id
-            save_config(playlist_url, discord_text_channel)
-            break
+            config = load_config(ctx.guild)
+            config["channel_id"] = channel.id
+
+            save_config(ctx.guild, config["playlist_url"], config["channel_id"])
+            await ctx.send(f"Channel set to: {channel.name}")
+            return
+
+    await ctx.send("Channel not found.")
+
     
     
 @tasks.loop(hours=24)
 async def daily_song():
-    global playlist_url, discord_text_channel
-
-    if not playlist_url or not discord_text_channel:
-        print("there no playlist or channel")
-        return
     ydl_opts = {
         'extract_flat': True,
         'quiet': True,
         'skip_download': True,
     }
 
-    songs = []
+    for guild in bot.guilds:
+        config = load_config(guild)
+        playlist_url = config.get("playlist_url")
+        channel_id = config.get("channel_id")
 
-    try:
+        if not playlist_url or not channel_id:
+            print(f"No playlist or channel set for guild: {guild.name}")
+            continue
 
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(playlist_url, download=False)
-            if 'entries' not in info:
-                print("not a playlist")
-                return
+        songs = []
 
-            for entry in info['entries']:
-                video_url = f"https://www.youtube.com/watch?v={entry['id']}"
-                songs.append(video_url)
+        try:
+            with YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(playlist_url, download=False)
+                if 'entries' not in info:
+                    print(f"Not a playlist for guild: {guild.name}")
+                    continue
 
-        song_url = random.choice(songs)
-        song_id = song_url.split("v=")[-1].split("&")[0] if "v=" in song_url else song_url.split("/")[-1]
+                for entry in info['entries']:
+                    video_url = f"https://www.youtube.com/watch?v={entry['id']}"
+                    songs.append(video_url)
 
-        def get_title(url):
-            try:
-                response = requests.get(url)
-                soup: BeautifulSoup = BeautifulSoup(response.text, 'html.parser')
-                return soup.title.string.strip()
-            except Exception as e:
-                print(f"Error fetching title: {e}")
-                return("Song of the day!")
-            
-        title = get_title(song_url)
+            if not songs:
+                print(f"No songs found in playlist for guild: {guild.name}")
+                continue
 
-        embed = discord.Embed(title="Song of the day!",description=f"**{title}**\n[Watch on YouTube]({song_url})", color=discord.Color.blue(),url=song_url)
-        embed.set_image(url=f"https://img.youtube.com/vi/{song_id}/maxresdefault.jpg")
-        embed.set_footer(text="Your daily dose of music!")
+            song_url = random.choice(songs)
+            song_id = song_url.split("v=")[-1].split("&")[0] if "v=" in song_url else song_url.split("/")[-1]
 
-        channel = bot.get_channel(discord_text_channel)
-        await channel.send(embed=embed)
-    except Exception as e:
-        print(f"Error in daily song function")
+            def get_title(url):
+                try:
+                    response = requests.get(url)
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    return soup.title.string.strip()
+                except Exception as e:
+                    print(f"Error fetching title: {e}")
+                    return "Song of the day!"
+
+            title = get_title(song_url)
+
+            embed = discord.Embed(
+                title="Song of the day!",
+                description=f"**{title}**\n[Watch on YouTube]({song_url})",
+                color=discord.Color.blue(),
+                url=song_url
+            )
+            embed.set_image(url=f"https://img.youtube.com/vi/{song_id}/maxresdefault.jpg")
+            embed.set_footer(text="Your daily dose of music!")
+
+            channel = guild.get_channel(channel_id)
+            if channel:
+                await channel.send(embed=embed)
+            else:
+                print(f"Channel ID {channel_id} not found in guild: {guild.name}")
+
+        except Exception as e:
+            print(f"Error in daily song function for guild {guild.name}: {e}")
+
 
 bot.run(DISCORD_TOKEN)
 

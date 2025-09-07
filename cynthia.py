@@ -24,7 +24,7 @@ bot = commands.Bot(command_prefix="$", intents=intents)
 #####################################################
 CONFIG_FILE = "config.json"
 
-def save_config(guild:discord.Guild, playlist_url=None, channel_id= None, post_time = None):
+def save_config(guild:discord.Guild, playlist_url=None, channel_id= None, post_hour = None, post_minute = None):
     guild_id = guild.id
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, "r") as f:
@@ -42,8 +42,10 @@ def save_config(guild:discord.Guild, playlist_url=None, channel_id= None, post_t
         servers_config[guild_id]["playlist_url"] = playlist_url
     if channel_id is not None:
         servers_config[guild_id]["channel_id"] = channel_id
-    if post_time is not None:
-        servers_config[guild_id]["post_time"] = post_time
+    if post_hour is not None:
+        servers_config[guild_id]["post_hour"] = post_hour
+    if post_minute is not None:
+        servers_config[guild_id]["post_minute"] = post_minute
     with open(CONFIG_FILE, "w") as f:
         json.dump(servers_config,f,indent=4)
 
@@ -53,12 +55,12 @@ def load_config(guild):
     guild_id = str(guild.id)
 
     if not os.path.exists(CONFIG_FILE):
-        return {"playlist_url": None, "channel_id": None, "post_time": 12}
+        return {"playlist_url": None, "channel_id": None, "post_hour": 12, "post_minute": 0}
 
     with open(CONFIG_FILE, "r") as f:
         data = json.load(f)
 
-    return data.get(guild_id, {"playlist_url": None, "channel_id": None, "post_time": 12})
+    return data.get(guild_id, {"playlist_url": None, "channel_id": None, "post_hour": 12, "post_minute": 0})
 
 @bot.event
 async def on_guild_join(guild: discord.Guild):
@@ -73,7 +75,8 @@ async def on_guild_join(guild: discord.Guild):
         server_config[guild_id] = {
             "playlist_url": None,
             "channel_id": None,
-            "post_time": 12
+            "post_hour": 12,
+            "post_minute": 0
         }
 
         with open(CONFIG_FILE, "w") as f:
@@ -94,7 +97,8 @@ def createInteraction(ctx:commands.Context,member:discord.Member,title: str, des
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
-    await daily_song()
+    if not daily_song.is_running():
+        daily_song.start()
 
 #INTERACTION COMMANDS
 #####################################################
@@ -262,9 +266,14 @@ async def set_daily_playlist_channel(ctx: commands.Context, channel_name: str):
     await ctx.send("Channel not found.")
 
 @bot.command()
-async def set_daily_playlist_post_time(ctx: commands.Context, hour: str):
+async def set_daily_playlist_post_time(ctx: commands.Context, time: str):
     try:
-        hour_int = int(hour)
+        if ":" in time:
+            hour, minute = time.split(":")
+            hour_int = int(hour)
+            minute_int = int(minute)
+        else:
+            time = int(hour)
     except TypeError:
         await ctx.send("Please type valid number value.")
         return
@@ -272,10 +281,13 @@ async def set_daily_playlist_post_time(ctx: commands.Context, hour: str):
     if hour_int < 0 or hour_int > 23:
         await ctx.send("Please select hour between 0 and 23")
         return
+    if minute_int < 0 or minute_int > 59:
+        await ctx.send("Please select minute between 0 and 59")
+        return
 
-    save_config(ctx.guild, post_time=hour)
+    save_config(ctx.guild, post_hour=hour, post_minute=minute)
 
-    await ctx.send(f"Post time is set to {hour}")
+    await ctx.send(f"Post time is set to {hour}{f":{minute}" if minute else ""}")
     
     
 @tasks.loop(minutes=1)
@@ -288,12 +300,16 @@ async def daily_song():
 
     now = datetime.now()
     current_hour = now.hour
+    current_minute = now.minute
 
     for guild in bot.guilds:
         config = load_config(guild)
-        post_time = config.get("post_time")
+        post_hour = int(config.get("post_hour"))
+        post_minute = int(config.get("post_minute"))
 
-        if post_time != current_hour:
+        print(f"[{guild.name}] → {config} | Now → {current_hour:02d}:{current_minute:02d}")
+
+        if post_hour != current_hour or post_minute != current_minute:
             continue
 
         playlist_url = config.get("playlist_url")
@@ -302,6 +318,7 @@ async def daily_song():
         if not playlist_url or not channel_id:
             print(f"No playlist or channel set for guild: {guild.name}")
             continue
+
 
         songs = []
 

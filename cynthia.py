@@ -1,5 +1,5 @@
 import discord
-import datetime
+from datetime import datetime
 from discord.ext import commands, tasks
 import requests
 import os
@@ -12,7 +12,6 @@ import json
 
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-RIOT_API_KEY = os.getenv("RIOT_API_KEY")
 
 intents = discord.Intents.default()
 intents.message_content = True        
@@ -54,12 +53,12 @@ def load_config(guild):
     guild_id = str(guild.id)
 
     if not os.path.exists(CONFIG_FILE):
-        return {"playlist_url": None, "channel_id": None}
+        return {"playlist_url": None, "channel_id": None, "post_time": 12}
 
     with open(CONFIG_FILE, "r") as f:
         data = json.load(f)
 
-    return data.get(guild_id, {"playlist_url": None, "channel_id": None})
+    return data.get(guild_id, {"playlist_url": None, "channel_id": None, "post_time": 12})
 
 @bot.event
 async def on_guild_join(guild: discord.Guild):
@@ -262,9 +261,24 @@ async def set_daily_playlist_channel(ctx: commands.Context, channel_name: str):
 
     await ctx.send("Channel not found.")
 
+@bot.command()
+async def set_daily_playlist_post_time(ctx: commands.Context, hour: str):
+    try:
+        hour_int = int(hour)
+    except TypeError:
+        await ctx.send("Please type valid number value.")
+        return
+    
+    if hour_int < 0 or hour_int > 23:
+        await ctx.send("Please select hour between 0 and 23")
+        return
+
+    save_config(ctx.guild, post_time=hour)
+
+    await ctx.send(f"Post time is set to {hour}")
     
     
-@tasks.loop(hours=24)
+@tasks.loop(minutes=1)
 async def daily_song():
     ydl_opts = {
         'extract_flat': True,
@@ -272,8 +286,16 @@ async def daily_song():
         'skip_download': True,
     }
 
+    now = datetime.now()
+    current_hour = now.hour
+
     for guild in bot.guilds:
         config = load_config(guild)
+        post_time = config.get("post_time")
+
+        if post_time != current_hour:
+            continue
+
         playlist_url = config.get("playlist_url")
         channel_id = config.get("channel_id")
 
